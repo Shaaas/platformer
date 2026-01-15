@@ -2,235 +2,236 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Platformer with Levels & Images</title>
+<title>Super Platformer Pro: Kinetic Edition</title>
 <style>
-  body {
-    margin: 0;
-    overflow: hidden;
-    background: #87ceeb;
-    font-family: Arial, sans-serif;
-  }
-  canvas {
-    display: block;
-    background: #87ceeb;
+  body { margin: 0; overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; }
+  canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #333; }
+  #ui-layer {
+    position: absolute; top: 10px; left: 10px; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    pointer-events: none; width: 100%;
   }
   #restartBtn {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    padding: 10px 20px;
-    font-size: 20px;
-    display: none;
-    cursor: pointer;
+    position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%);
+    padding: 15px 30px; font-size: 24px; display: none; cursor: pointer;
+    background: #ff4757; color: white; border: none; border-radius: 8px; font-weight: bold;
   }
 </style>
 </head>
 <body>
+<div id="ui-layer">
+  <div style="font-size: 24px;">Score: <span id="scoreVal">0</span></div>
+  <div style="font-size: 18px;">Level: <span id="lvlVal">1</span></div>
+</div>
 <canvas id="gameCanvas" width="800" height="400"></canvas>
-<button id="restartBtn">Restart</button>
+<button id="restartBtn">RETRY</button>
+
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const restartBtn = document.getElementById('restartBtn');
+const scoreVal = document.getElementById('scoreVal');
+const lvlVal = document.getElementById('lvlVal');
 
-const gravity = 0.5;
-const player = {x:50, y:300, width:40, height:50, dx:0, dy:0, speed:5, jumpPower:12, onGround:false};
+// --- GAME STATE ---
 let score = 0;
 let gameOver = false;
 let currentLevel = 0;
+let particles = [];
+let shakeRemaining = 0; // Screen shake timer
 
-// Load images
-const assets = {};
-assets.player = new Image(); assets.player.src = 'player.png';
-assets.platform = new Image(); assets.platform.src = 'platform.png';
-assets.coin = new Image(); assets.coin.src = 'coin.png';
-assets.enemy = new Image(); assets.enemy.src = 'enemy.png';
+const player = {
+  x:50, y:300, width:30, height:40, 
+  dx:0, dy:0, speed:6, jumpPower:11, 
+  onGround:false, jumpsLeft: 2
+};
 
-// Levels
+// --- ASSETS ---
+const assets = { player: new Image(), platform: new Image(), coin: new Image(), enemy: new Image() };
+assets.player.src = 'player.png';
+assets.platform.src = 'platform.png';
+assets.coin.src = 'coin.png';
+assets.enemy.src = 'enemy.png';
+
+// --- LEVEL DATA ---
 const levels = [
   {
     platforms: [
-      {x:0, y:350, width:800, height:50},
-      {x:200, y:250, width:100, height:10},
-      {x:400, y:180, width:150, height:10},
-      {x:650, y:300, width:100, height:10}
+        {x:0, y:350, w:800, h:50, type:'static'},
+        {x:300, y:250, w:150, h:20, type:'moving', range:150, speed:2, vertical:false, startX:300, startY:250},
+        {x:550, y:180, w:120, h:20, type:'static'}
     ],
-    collectibles: [
-      {x:220, y:220, width:20, height:20, collected:false},
-      {x:450, y:150, width:20, height:20, collected:false},
-      {x:670, y:270, width:20, height:20, collected:false}
-    ],
-    enemies: [
-      {x:300, y:320, width:30, height:30, dx:2, leftBound:300, rightBound:400}
-    ],
-    endX: 750
-  },
-  {
-    platforms: [
-      {x:0, y:350, width:800, height:50},
-      {x:150, y:280, width:120, height:10},
-      {x:350, y:200, width:180, height:10},
-      {x:600, y:150, width:150, height:10}
-    ],
-    collectibles: [
-      {x:170, y:250, width:20, height:20, collected:false},
-      {x:380, y:170, width:20, height:20, collected:false},
-      {x:650, y:120, width:20, height:20, collected:false}
-    ],
-    enemies: [
-      {x:200, y:320, width:30, height:30, dx:1.5, leftBound:200, rightBound:300},
-      {x:400, y:170, width:30, height:30, dx:2, leftBound:400, rightBound:520}
-    ],
+    collectibles: [{x:350,y:210,w:25,h:25,active:true}],
+    enemies: [{x:400,y:320,w:30,h:30,dx:2,L:100,R:700}],
     endX: 750
   }
 ];
 
-let platforms = [];
-let collectibles = [];
-let enemies = [];
+let state = { platforms: [], collectibles: [], enemies: [] };
 
-function loadLevel(levelIndex){
-  const level = levels[levelIndex];
-  platforms = JSON.parse(JSON.stringify(level.platforms));
-  collectibles = JSON.parse(JSON.stringify(level.collectibles));
-  enemies = JSON.parse(JSON.stringify(level.enemies));
-  player.x = 50;
-  player.y = 300;
-  player.dx = 0;
-  player.dy = 0;
-  player.onGround = false;
+function loadLevel(idx) {
+  const level = levels[idx] || levels[0];
+  state.platforms = JSON.parse(JSON.stringify(level.platforms));
+  state.collectibles = JSON.parse(JSON.stringify(level.collectibles));
+  state.enemies = JSON.parse(JSON.stringify(level.enemies));
+  player.x = 50; player.y = 300; player.dx = 0; player.dy = 0;
+  player.jumpsLeft = 2;
   gameOver = false;
   restartBtn.style.display = 'none';
+  lvlVal.innerText = idx + 1;
 }
 
-loadLevel(currentLevel);
-
+// --- INPUTS ---
 const keys = {};
-document.addEventListener('keydown', e => keys[e.code] = true);
-document.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('keydown', e => {
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
+    if (player.jumpsLeft > 0) {
+      player.dy = -player.jumpPower;
+      player.jumpsLeft--;
+      player.onGround = false;
+    }
+  }
+  keys[e.code] = true;
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
 
-function update(){
+function createParticles(x, y, color) {
+  for(let i=0; i<10; i++) {
+    particles.push({
+      x, y, dx: (Math.random()-0.5)*8, dy: (Math.random()-0.5)*8, 
+      life: 25, color: color, size: Math.random()*5
+    });
+  }
+}
+
+function update() {
   if(gameOver) return;
 
-  // Player movement
-  player.dx = (keys['ArrowRight']||keys['KeyD'])?player.speed:(keys['ArrowLeft']||keys['KeyA'])?-player.speed:0;
-  if((keys['ArrowUp']||keys['KeyW']||keys['Space']) && player.onGround){
-    player.dy = -player.jumpPower;
-    player.onGround = false;
-  }
+  // Horizontal Movement
+  if(keys['ArrowRight'] || keys['KeyD']) player.dx = 6;
+  else if(keys['ArrowLeft'] || keys['KeyA']) player.dx = -6;
+  else player.dx *= 0.8;
 
-  player.dy += gravity;
+  player.dy += 0.6; // gravity
   player.x += player.dx;
   player.y += player.dy;
 
-  // Platform collision
+  // Platform Logic
   player.onGround = false;
-  for(let plat of platforms){
-    if(player.x < plat.x + plat.width &&
-       player.x + player.width > plat.x &&
-       player.y + player.height < plat.y + plat.height &&
-       player.y + player.height > plat.y){
-      player.y = plat.y - player.height;
+  state.platforms.forEach(p => {
+    // Move platforms
+    if(p.type === 'moving') {
+        p.startX += p.speed;
+        if(p.startX > p.range + p.x || p.startX < p.x - p.range) p.speed *= -1;
+        p.x = p.startX; 
+    }
+
+    // Collision
+    if(player.x < p.x + p.w && player.x + player.width > p.x &&
+       player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
+      player.y = p.y - player.height;
       player.dy = 0;
       player.onGround = true;
+      player.jumpsLeft = 2;
+      
+      // Carry player with moving platform
+      if(p.type === 'moving') player.x += p.speed;
     }
-  }
+  });
 
-  // Canvas bounds
+  // Enemy Mechanics
+  state.enemies.forEach((e, i) => {
+    e.x += e.dx;
+    if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
+
+    if(player.x < e.x + e.w && player.x + player.width > e.x && player.y < e.y + e.h && player.y + player.height > e.y) {
+      if(player.dy > 0 && player.y + player.height < e.y + e.h/2) {
+        state.enemies.splice(i, 1);
+        player.dy = -10;
+        player.jumpsLeft = 1;
+        score += 50;
+        scoreVal.innerText = score;
+        shakeRemaining = 10; // Trigger Shake
+        createParticles(e.x, e.y, '#ff4757');
+      } else {
+        gameOver = true;
+        shakeRemaining = 20;
+        restartBtn.style.display = 'block';
+      }
+    }
+  });
+
+  // Screen Shake decrement
+  if(shakeRemaining > 0) shakeRemaining--;
+
+  // Particle life
+  particles.forEach((p, i) => {
+    p.x += p.dx; p.y += p.dy; p.life--;
+    if(p.life <= 0) particles.splice(i, 1);
+  });
+
+  // Screen Bounds
   if(player.x < 0) player.x = 0;
-  if(player.x + player.width > canvas.width) player.x = canvas.width - player.width;
-  if(player.y + player.height > canvas.height){
-    player.y = canvas.height - player.height;
-    player.dy = 0;
-    player.onGround = true;
+  if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
+}
+
+function draw() {
+  ctx.save();
+  
+  // Apply Screen Shake
+  if (shakeRemaining > 0) {
+    let shakeX = (Math.random() - 0.5) * 7;
+    let shakeY = (Math.random() - 0.5) * 7;
+    ctx.translate(shakeX, shakeY);
   }
 
-  // Collectibles
-  for(let item of collectibles){
-    if(!item.collected &&
-       player.x < item.x + item.width &&
-       player.x + player.width > item.x &&
-       player.y < item.y + item.height &&
-       player.y + player.height > item.y){
-      item.collected = true;
-      score += 1;
-    }
-  }
+  // Clear Sky
+  ctx.fillStyle = '#87ceeb';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Enemy movement & collision
-  for(let enemy of enemies){
-    enemy.x += enemy.dx;
-    if(enemy.x < enemy.leftBound || enemy.x + enemy.width > enemy.rightBound) enemy.dx *= -1;
+  // Draw Platforms
+  state.platforms.forEach(p => {
+    ctx.fillStyle = p.type === 'moving' ? '#57606f' : '#2ed573';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+  });
 
-    if(player.x < enemy.x + enemy.width &&
-       player.x + player.width > enemy.x &&
-       player.y < enemy.y + enemy.height &&
-       player.y + player.height > enemy.y){
-      gameOver = true;
-      restartBtn.style.display = 'block';
-    }
-  }
+  // Draw Particles
+  particles.forEach(p => {
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  });
 
-  // Level completion
-  if(player.x >= levels[currentLevel].endX){
-    currentLevel++;
-    if(currentLevel >= levels.length){
-      alert('You Win! Final Score: ' + score);
-      currentLevel = 0;
-    }
-    loadLevel(currentLevel);
+  // Draw Player
+  ctx.fillStyle = 'white';
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  // Draw Enemies
+  state.enemies.forEach(e => {
+    ctx.fillStyle = '#ff4757';
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+  });
+
+  ctx.restore(); // Stop shaking for UI
+
+  if(gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('CRASHED!', canvas.width/2, 200);
   }
 }
 
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+restartBtn.addEventListener('click', () => loadLevel(currentLevel));
 
-  // Draw platforms
-  for(let plat of platforms){
-    ctx.drawImage(assets.platform, plat.x, plat.y, plat.width, plat.height);
-  }
-
-  // Draw player
-  ctx.drawImage(assets.player, player.x, player.y, player.width, player.height);
-
-  // Draw collectibles
-  for(let item of collectibles){
-    if(!item.collected){
-      ctx.drawImage(assets.coin, item.x, item.y, item.width, item.height);
-    }
-  }
-
-  // Draw enemies
-  for(let enemy of enemies){
-    ctx.drawImage(assets.enemy, enemy.x, enemy.y, enemy.width, enemy.height);
-  }
-
-  // Score
-  ctx.fillStyle = 'black';
-  ctx.font = '20px Arial';
-  ctx.fillText('Score: ' + score, 10, 30);
-
-  // Game Over
-  if(gameOver){
-    ctx.fillStyle = 'black';
-    ctx.font = '40px Arial';
-    ctx.fillText('GAME OVER', 300, 200);
-  }
-}
-
-restartBtn.addEventListener('click', () => {
-  loadLevel(currentLevel);
-});
-
-function gameLoop(){
+function loop() {
   update();
   draw();
-  requestAnimationFrame(gameLoop);
+  requestAnimationFrame(loop);
 }
 
-gameLoop();
+loadLevel(0);
+loop();
 </script>
 </body>
 </html>
-
