@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Sprites: World Tour</title>
+<title>Super Sprites: Lava & Level Fixes</title>
 <style>
   body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Segoe UI', sans-serif; }
   canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #444; }
@@ -21,7 +21,7 @@
 <div id="ui-layer">
   <div style="font-size: 26px; font-weight: bold;">Score: <span id="scoreVal">0</span></div>
   <div style="font-size: 18px; color: #ffd700;">Level: <span id="lvlVal">1</span></div>
-  <div style="font-size: 12px; opacity: 0.8;">[Arrows] Move | [Space] Jump | [Shift] Dash</div>
+  <div style="font-size: 12px; opacity: 0.8;">SHIFT to Dash | Space to Double Jump</div>
 </div>
 <canvas id="gameCanvas" width="800" height="400"></canvas>
 <button id="restartBtn">RETRY LEVEL</button>
@@ -53,42 +53,37 @@ const player = {
   dashCooldown: 0, isDashing: 0, facing: 1
 };
 
-// --- DATA FOR MULTIPLE LEVELS ---
 const levels = [
-  { // Level 1: Introduction
+  { // Level 1
     platforms: [
         {x:0, y:350, w:800, h:50, type:'static'},
         {x:200, y:250, w:150, h:20, type:'static'},
         {x:450, y:180, w:150, h:20, type:'static'}
     ],
-    collectibles: [{x:250, y:210, w:30, h:30, active:true}, {x:500, y:140, w:30, h:30, active:true}],
-    enemies: [{x:400, y:315, w:35, h:35, dx:2, L:350, R:700}],
+    collectibles: [{x:250, y:210, w:30, h:30, active:true}],
+    enemies: [{x:400, y:315, w:35, h:35, dx:2, L:300, R:700}],
     endX: 750
   },
-  { // Level 2: Moving Platform Challenge
+  { // Level 2: FIXED MOVING PLATFORMS
     platforms: [
         {x:0, y:350, w:200, h:50, type:'static'},
-        {x:250, y:300, w:100, h:20, type:'moving', range:150, speed:3, startX:250},
-        {x:500, y:200, w:100, h:20, type:'moving', range:100, speed:-2, startX:500},
+        {x:300, y:280, w:120, h:20, type:'moving', range:100, speed:2, basePos: 300},
+        {x:550, y:200, w:120, h:20, type:'moving', range:80, speed:-2, basePos: 550},
         {x:700, y:350, w:100, h:50, type:'static'}
     ],
-    collectibles: [{x:300, y:150, w:30, h:30, active:true}, {x:550, y:100, w:30, h:30, active:true}],
-    enemies: [{x:100, y:315, w:35, h:35, dx:1, L:20, R:180}],
+    collectibles: [{x:350, y:120, w:30, h:30, active:true}],
+    enemies: [{x:50, y:315, w:35, h:35, dx:1, L:10, R:180}],
     endX: 750
   },
   { // Level 3: The Gauntlet
     platforms: [
         {x:0, y:350, w:150, h:50, type:'static'},
         {x:200, y:280, w:80, h:20, type:'static'},
-        {x:350, y:210, w:80, h:20, type:'static'},
-        {x:500, y:140, w:80, h:20, type:'static'},
-        {x:650, y:210, w:150, h:20, type:'static'}
+        {x:400, y:280, w:80, h:20, type:'moving', range:100, speed:3, basePos: 400},
+        {x:650, y:220, w:150, h:20, type:'static'}
     ],
-    collectibles: [{x:220, y:240, w:30, h:30, active:true}, {x:520, y:100, w:30, h:30, active:true}],
-    enemies: [
-        {x:200, y:245, w:35, h:35, dx:2, L:200, R:300},
-        {x:650, y:175, w:35, h:35, dx:3, L:650, R:780}
-    ],
+    collectibles: [{x:450, y:150, w:30, h:30, active:true}],
+    enemies: [{x:650, y:185, w:35, h:35, dx:3, L:650, R:780}],
     endX: 750
   }
 ];
@@ -97,43 +92,32 @@ let state = { platforms: [], collectibles: [], enemies: [] };
 
 function loadLevel(idx) {
   if (idx >= levels.length) {
-    alert("YOU ARE THE PLATFORMING CHAMPION!");
-    currentLevel = 0;
-    score = 0;
-    idx = 0;
+    alert("YOU WIN! SCORE: " + score);
+    currentLevel = 0; score = 0; idx = 0;
   }
-  
   const level = levels[idx];
   state.platforms = JSON.parse(JSON.stringify(level.platforms));
   state.collectibles = JSON.parse(JSON.stringify(level.collectibles));
   state.enemies = JSON.parse(JSON.stringify(level.enemies));
-  
   player.x = 50; player.y = 100;
   player.dx = 0; player.dy = 0;
   player.jumpsLeft = 2;
   player.dashCooldown = 0;
-  ghosts = [];
-  
   gameOver = false;
   restartBtn.style.display = 'none';
   lvlVal.innerText = idx + 1;
-  scoreVal.innerText = score;
 }
 
-// Input Handling
 const keys = {};
 window.addEventListener('keydown', e => {
   if (!gameOver) {
     if ((e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') && player.jumpsLeft > 0) {
         player.dy = -player.jumpPower;
-        player.jumpsLeft--;
-        player.onGround = false;
+        player.jumpsLeft--; player.onGround = false;
         createParticles(player.x + player.width/2, player.y + player.height, 'white');
     }
     if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && player.dashCooldown <= 0) {
-        player.isDashing = 12; 
-        player.dashCooldown = 45; 
-        shakeRemaining = 5;
+        player.isDashing = 12; player.dashCooldown = 45; shakeRemaining = 5;
     }
   }
   keys[e.code] = true;
@@ -142,10 +126,7 @@ window.addEventListener('keyup', e => keys[e.code] = false);
 
 function createParticles(x, y, color) {
   for(let i=0; i<8; i++) {
-    particles.push({
-      x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, 
-      life: 15, color: color, size: Math.random()*5
-    });
+    particles.push({x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 15, color: color, size: Math.random()*5});
   }
 }
 
@@ -159,26 +140,30 @@ function update() {
   if (player.isDashing > 0) {
     player.dx = player.facing * 16; player.dy = 0; player.isDashing--;
     if(player.isDashing % 2 === 0) ghosts.push({x: player.x, y: player.y, life: 20});
-  } else {
-    player.dy += 0.6; 
-  }
+  } else { player.dy += 0.6; }
   if (player.dashCooldown > 0) player.dashCooldown--;
 
   player.x += player.dx;
   player.y += player.dy;
 
-  // Collision Logic
+  // Moving Platform Fix: Calculate movement from a fixed basePos
   player.onGround = false;
   state.platforms.forEach(p => {
     if(p.type === 'moving') {
-        p.startX += p.speed;
-        if(p.startX > p.range + p.x || p.startX < p.x - p.range) p.speed *= -1;
-        p.x = p.startX; 
-    }
-    if(player.x < p.x + p.w && player.x + player.width > p.x &&
-       player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
-      player.y = p.y - player.height; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
-      if(p.type === 'moving') player.x += p.speed;
+        let offset = Math.sin(Date.now() / 500) * p.range; // Smooth sine wave movement
+        let oldX = p.x;
+        p.x = p.basePos + offset;
+        let pSpeed = p.x - oldX;
+        if(player.x < p.x + p.w && player.x + player.width > p.x &&
+           player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
+            player.y = p.y - player.height; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
+            player.x += pSpeed; // Move player with platform
+        }
+    } else {
+        if(player.x < p.x + p.w && player.x + player.width > p.x &&
+           player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
+            player.y = p.y - player.height; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
+        }
     }
   });
 
@@ -190,26 +175,18 @@ function update() {
   });
 
   state.enemies.forEach((e, i) => {
-    e.x += e.dx;
-    if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
+    e.x += e.dx; if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
     if(player.x < e.x + e.w && player.x + player.width > e.x && player.y < e.y + e.h && player.y + player.height > e.y) {
       if(player.dy > 0 && player.y + player.height < e.y + e.h/2) {
         state.enemies.splice(i, 1); player.dy = -10; player.jumpsLeft = 1; score += 250;
         scoreVal.innerText = score; shakeRemaining = 10;
-      } else {
-        gameOver = true; shakeRemaining = 20; restartBtn.style.display = 'block';
-      }
+      } else { gameOver = true; restartBtn.style.display = 'block'; }
     }
   });
 
-  // Level Completion Logic
-  if(player.x >= levels[currentLevel].endX) {
-    currentLevel++;
-    loadLevel(currentLevel);
-  }
-
+  if(player.x >= 750) { currentLevel++; loadLevel(currentLevel); }
   if(player.x < 0) player.x = 0;
-  if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
+  if(player.y > canvas.height - 20) { gameOver = true; shakeRemaining = 20; restartBtn.style.display = 'block'; }
   
   if(shakeRemaining > 0) shakeRemaining--;
   particles.forEach((p, i) => { p.x += p.dx; p.y += p.dy; p.life--; if(p.life <= 0) particles.splice(i, 1); });
@@ -219,26 +196,30 @@ function update() {
 function draw() {
   ctx.save();
   if (shakeRemaining > 0) ctx.translate((Math.random()-0.5)*7, (Math.random()-0.5)*7);
-  ctx.fillStyle = '#87ceeb';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#87ceeb'; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Draw Lava at the bottom
+  ctx.fillStyle = '#ff4500';
+  ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+  for(let i=0; i<canvas.width; i+=40) { // Animated Lava "bubbles"
+    ctx.beginPath();
+    ctx.arc(i + Math.sin(Date.now()/500)*10, canvas.height-20, 15, 0, Math.PI, true);
+    ctx.fill();
+  }
 
   ghosts.forEach(g => { ctx.globalAlpha = g.life / 40; ctx.drawImage(assets.player, g.x, g.y, player.width, player.height); });
   ctx.globalAlpha = 1.0;
-
   state.platforms.forEach(p => ctx.drawImage(assets.platform, p.x, p.y, p.w, p.h));
   state.collectibles.forEach(c => { if(c.active) ctx.drawImage(assets.coin, c.x, c.y, c.w, c.h); });
   state.enemies.forEach(e => ctx.drawImage(assets.enemy, e.x, e.y, e.w, e.h));
   particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); });
   ctx.drawImage(assets.player, player.x, player.y, player.width, player.height);
-
   ctx.restore();
 
   if(gameOver) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
-    ctx.fillText('MISSION FAILED', canvas.width/2, 200);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'white'; ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
+    ctx.fillText('CRITICAL FAILURE', canvas.width/2, 200);
   }
 }
 
