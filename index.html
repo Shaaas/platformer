@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Platformer Ultra: 3-Level Solid Edition</title>
+<title>Super Platformer Ultra: Squish Edition</title>
 <style>
   body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; }
   canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #333; }
@@ -35,7 +35,6 @@ const scoreVal = document.getElementById('scoreVal');
 const lvlVal = document.getElementById('lvlVal');
 const powerStatus = document.getElementById('powerStatus');
 
-// --- ASSETS ---
 const assets = { 
     player: new Image(), platform: new Image(), coin: new Image(), 
     enemy: new Image(), bg: new Image(), checkpoint: new Image(),
@@ -49,22 +48,20 @@ assets.bg.src = 'background.png';
 assets.checkpoint.src = 'checkpoint.png';
 assets.powerup.src = 'powerup.png';
 
-// --- GAME STATE ---
 let score = 0;
 let gameOver = false;
 let currentLevel = 0;
 let ghosts = [];
+let deadEnemies = []; // To track squish animation
 
 const player = {
   x:50, y:200, w:40, h:50,
   dx:0, dy:0, speed:6, jumpPower:12, 
   onGround:false, jumpsLeft: 2,
   dashCooldown: 0, isDashing: 0, facing: 1,
-  invincible: 0, 
-  checkpoint: { x: 50, y: 200 }
+  invincible: 0, checkpoint: { x: 50, y: 200 }
 };
 
-// --- COMPLETE LEVEL DATA ---
 const levels = [
   { // Level 1
     platforms: [
@@ -81,18 +78,18 @@ const levels = [
     enemies: [{x:600, y:315, w:35, h:35, dx:2, L:450, R:750}],
     endX: 770
   },
-  { // Level 2
+  { // Level 2: FIXED
     platforms: [
         {x:0, y:350, w:150, h:50, type:'static'},
         {x:200, y:280, w:100, h:25, type:'moving', range:50, basePos: 200},
-        {x:400, y:200, w:100, h:25, type:'moving', range:80, basePos: 400},
+        {x:400, y:200, w:120, h:25, type:'moving', range:80, basePos: 400},
         {x:650, y:300, w:150, h:50, type:'static'}
     ],
     items: [
         {x:220, y:220, w:30, h:30, type:'coin', active:true},
         {x:680, y:250, w:40, h:50, type:'checkpoint', active:true}
     ],
-    enemies: [{x:100, y:315, w:35, h:35, dx:1, L:10, R:140}],
+    enemies: [{x:420, y:165, w:35, h:35, dx:1.5, L:400, R:520, onPlatform: true}],
     endX: 770
   },
   { // Level 3
@@ -115,56 +112,40 @@ const levels = [
 let state = { platforms: [], items: [], enemies: [] };
 
 function loadLevel(idx, fromCheckpoint = false) {
-  if (idx >= levels.length) {
-      alert("VICTORY! ALL LEVELS COMPLETE!");
-      currentLevel = 0; score = 0; idx = 0;
-  }
-  
+  if (idx >= levels.length) { alert("VICTORY!"); location.reload(); return; }
   const level = levels[idx];
   state.platforms = JSON.parse(JSON.stringify(level.platforms));
   state.items = JSON.parse(JSON.stringify(level.items));
   state.enemies = JSON.parse(JSON.stringify(level.enemies));
+  deadEnemies = [];
   
-  if(fromCheckpoint) {
-      player.x = player.checkpoint.x;
-      player.y = player.checkpoint.y;
-  } else {
-      player.x = 50; player.y = 200;
-      player.checkpoint = { x: 50, y: 200 };
-  }
+  if(fromCheckpoint) { player.x = player.checkpoint.x; player.y = player.checkpoint.y; }
+  else { player.x = 50; player.y = 200; player.checkpoint = { x: 50, y: 200 }; }
   
-  player.dx = 0; player.dy = 0;
-  player.invincible = 0;
-  gameOver = false;
-  restartBtn.style.display = 'none';
+  player.dx = 0; player.dy = 0; player.invincible = 0;
+  gameOver = false; restartBtn.style.display = 'none';
   lvlVal.innerText = idx + 1;
-  scoreVal.innerText = score;
 }
 
-// --- INPUTS ---
 const keys = {};
-window.addEventListener('keydown', e => {
-    if (!gameOver) {
-        if ((e.code === 'Space' || e.code === 'ArrowUp') && player.jumpsLeft > 0) {
-            player.dy = -player.jumpPower; player.jumpsLeft--; player.onGround = false;
-        }
-        if (e.code === 'ShiftLeft' && player.dashCooldown <= 0) {
-            player.isDashing = 10; player.dashCooldown = 40;
-        }
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => {
+    if ((e.code === 'Space' || e.code === 'ArrowUp') && player.jumpsLeft > 0 && !gameOver) {
+        player.dy = -player.jumpPower; player.jumpsLeft--; player.onGround = false;
     }
-    keys[e.code] = true;
+    if (e.code === 'ShiftLeft' && player.dashCooldown <= 0 && !gameOver) {
+        player.isDashing = 10; player.dashCooldown = 40;
+    }
+    keys[e.code] = false;
 });
-window.addEventListener('keyup', e => keys[e.code] = false);
 
 function update() {
   if(gameOver) return;
 
-  // X Move
   if(keys['ArrowRight']) { player.dx = player.speed; player.facing = 1; }
   else if(keys['ArrowLeft']) { player.dx = -player.speed; player.facing = -1; }
   else player.dx *= 0.8;
 
-  // Dash/Gravity
   if (player.isDashing > 0) {
     player.dx = player.facing * 15; player.dy = 0; player.isDashing--;
     ghosts.push({x: player.x, y: player.y, life: 10});
@@ -172,12 +153,8 @@ function update() {
   
   player.x += player.dx; player.y += player.dy;
   if(player.dashCooldown > 0) player.dashCooldown--;
-  if(player.invincible > 0) {
-      player.invincible--;
-      powerStatus.innerText = "INVINCIBLE: " + Math.ceil(player.invincible/60) + "s";
-  } else { powerStatus.innerText = ""; }
+  if(player.invincible > 0) player.invincible--;
 
-  // Platform Physics
   player.onGround = false;
   state.platforms.forEach(p => {
     if(p.type === 'moving') {
@@ -191,67 +168,65 @@ function update() {
     }
   });
 
-  // Items
   state.items.forEach(item => {
     if(item.active && player.x < item.x + item.w && player.x + player.w > item.x && player.y < item.y + item.h && player.y + player.h > item.y) {
-        if(item.type === 'coin') { item.active = false; score += 100; scoreVal.innerText = score; }
-        if(item.type === 'powerup') { item.active = false; player.invincible = 300; }
-        if(item.type === 'checkpoint') { item.active = false; player.checkpoint = {x: item.x, y: item.y - 10}; }
+        item.active = false;
+        if(item.type === 'coin') { score += 100; scoreVal.innerText = score; }
+        if(item.type === 'powerup') player.invincible = 300;
+        if(item.type === 'checkpoint') player.checkpoint = {x: item.x, y: item.y - 10};
     }
   });
 
-  // Enemy Combat
   state.enemies.forEach((e, i) => {
+    // Enemy platform lock logic
+    if(e.onPlatform) {
+        let plat = state.platforms.find(p => p.basePos === e.L || p.basePos === e.R - (e.R-e.L));
+        if(plat) { 
+            let pX = plat.basePos + Math.sin(Date.now() / 600) * plat.range;
+            e.L = pX; e.R = pX + plat.w;
+        }
+    }
     e.x += e.dx; if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
+    
     if(player.x < e.x + e.w && player.x + player.w > e.x && player.y < e.y + e.h && player.y + player.h > e.y) {
       if(player.dy > 0 || player.invincible > 0) {
+        deadEnemies.push({x: e.x, y: e.y + e.h/2, w: e.w + 10, h: 10, life: 10}); // Squish!
         state.enemies.splice(i, 1); player.dy = -10; score += 200; scoreVal.innerText = score;
       } else { gameOver = true; restartBtn.style.display = 'block'; }
     }
   });
 
-  // Out of Bounds/Win
   if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
-  if(player.x > levels[currentLevel].endX) {
-      currentLevel++;
-      loadLevel(currentLevel);
-  }
+  if(player.x > levels[currentLevel].endX) { currentLevel++; loadLevel(currentLevel); }
   
   ghosts.forEach((g, i) => { g.life--; if(g.life <= 0) ghosts.splice(i, 1); });
+  deadEnemies.forEach((d, i) => { d.life--; if(d.life <= 0) deadEnemies.splice(i, 1); });
 }
 
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  // Parallax
   let bgScroll = (player.x * 0.1) % canvas.width;
   ctx.drawImage(assets.bg, -bgScroll, 0, canvas.width, canvas.height);
   ctx.drawImage(assets.bg, -bgScroll + canvas.width, 0, canvas.width, canvas.height);
 
-  // Lava
   ctx.fillStyle = '#ff4500'; ctx.fillRect(0, canvas.height-20, canvas.width, 20);
 
-  // Level Objects
   state.platforms.forEach(p => ctx.drawImage(assets.platform, p.x, p.y, p.w, p.h));
-  state.items.forEach(item => {
-    if(!item.active && item.type !== 'checkpoint') return;
-    ctx.drawImage(assets[item.type], item.x, item.y, item.w, item.h);
-  });
+  state.items.forEach(item => { if(item.active || item.type === 'checkpoint') ctx.drawImage(assets[item.type], item.x, item.y, item.w, item.h); });
   state.enemies.forEach(e => ctx.drawImage(assets.enemy, e.x, e.y, e.w, e.h));
+  
+  // Draw Squished Enemies
+  deadEnemies.forEach(d => { ctx.drawImage(assets.enemy, d.x, d.y, d.w, d.h); });
 
-  // Player
   ghosts.forEach(g => { ctx.globalAlpha = 0.3; ctx.drawImage(assets.player, g.x, g.y, player.w, player.h); });
   ctx.globalAlpha = 1.0;
-  if(player.invincible > 0) ctx.filter = `hue-rotate(${Date.now()%360}deg) brightness(1.2)`;
+  if(player.invincible > 0) ctx.filter = `hue-rotate(${Date.now()%360}deg)`;
   ctx.drawImage(assets.player, player.x, player.y, player.w, player.h);
   ctx.filter = 'none';
 
   if(gameOver) {
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.font = "bold 28px Arial";
-      ctx.fillText('MISSION FAILED', 400, 180);
-      ctx.font = "18px Arial";
-      ctx.fillText('TRY AGAIN FROM LAST CHECKPOINT', 400, 220);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText('GAME OVER', 400, 200);
   }
 }
 
