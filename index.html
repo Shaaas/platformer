@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Platformer</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #87ceeb; /* sky blue */
+    }
+    canvas {
+      display: block;
+      background: #87ceeb;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const gravity = 0.5;
+    const friction = 0.8;
+
+    // Player
+    const player = {
+      x: 50,
+      y: 300,
+      width: 30,
+      height: 50,
+      color: 'red',
+      dx: 0,
+      dy: 0,
+      speed: 5,
+      jumpPower: 12,
+      onGround: false
+    };
+
+    // Platforms
+    const platforms = [
+      {x: 0, y: 350, width: 800, height: 50},
+      {x: 200, y: 250, width: 100, height: 10},
+      {x: 400, y: 180, width: 150, height: 10},
+      {x: 650, y: 300, width: 100, height: 10}
+    ];
+
+    const keys = {};
+
+    // Keyboard events
+    document.addEventListener('keydown', e => keys[e.code] = true);
+    document.addEventListener('keyup', e => keys[e.code] = false);
+
+    function update() {
+      // Horizontal movement
+      if (keys['ArrowLeft'] || keys['KeyA']) player.dx = -player.speed;
+      else if (keys['ArrowRight'] || keys['KeyD']) player.dx = player.speed;
+      else player.dx = 0;
+
+      // Jump
+      if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && player.onGround) {
+        player.dy = -player.jumpPower;
+        player.onGround = false;
+      }
+
+      // Apply gravity
+      player.dy += gravity;
+
+      // Move player
+      player.x += player.dx;
+      player.y += player.dy;
+
+      // Collision detection
+      player.onGround = false;
+      for (let plat of platforms) {
+        if (
+          player.x < plat.x + plat.width &&
+          player.x + player.width > plat.x &&
+          player.y + player.height < plat.y + plat.height &&
+          player.y + player.height > plat.y
+        ) {
+          player.y = plat.y - player.height;
+          player.dy = 0;
+          player.onGround = true;
+        }
+      }
+
+      // Keep player in canvas
+      if (player.x < 0) player.x = 0;
+      if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+      if (player.y + player.height > canvas.height) {
+        player.y = canvas.height - player.height;
+        player.dy = 0;
+        player.onGround = true;
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw player
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+
+      // Draw platforms
+      ctx.fillStyle = 'green';
+      for (let plat of platforms) {
+        ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+      }
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
