@@ -2,28 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Platformer Pro: Kinetic Edition (Sprites)</title>
+<title>Super Sprites: Dash & Fixed Spawn</title>
 <style>
-  body { margin:0; overflow:hidden; background:#222; font-family:'Segoe UI',sans-serif; }
-  canvas { display:block; margin:0 auto; background:#87ceeb; border:4px solid #333; }
+  body { margin: 0; overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; }
+  canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #444; }
   #ui-layer {
-    position:absolute; top:10px; left:10px; color:white; text-shadow:2px 2px 4px rgba(0,0,0,0.5);
-    pointer-events:none; width:100%;
+    position: absolute; top: 15px; left: 15px; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    pointer-events: none; width: 100%;
   }
   #restartBtn {
-    position:absolute; top:60%; left:50%; transform:translate(-50%, -50%);
-    padding:15px 30px; font-size:24px; display:none; cursor:pointer;
-    background:#ff4757; color:white; border:none; border-radius:8px; font-weight:bold;
+    position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%);
+    padding: 15px 30px; font-size: 24px; display: none; cursor: pointer;
+    background: #ff4757; color: white; border: none; border-radius: 8px; font-weight: bold;
   }
 </style>
 </head>
 <body>
 <div id="ui-layer">
-  <div style="font-size:24px;">Score: <span id="scoreVal">0</span></div>
-  <div style="font-size:18px;">Level: <span id="lvlVal">1</span></div>
+  <div style="font-size: 26px; font-weight: bold;">Score: <span id="scoreVal">0</span></div>
+  <div style="font-size: 14px; opacity: 0.9;">Level: <span id="lvlVal">1</span> | SHIFT to Dash</div>
 </div>
 <canvas id="gameCanvas" width="800" height="400"></canvas>
-<button id="restartBtn">RETRY</button>
+<button id="restartBtn">RETRY MISSION</button>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
@@ -32,7 +32,12 @@ const restartBtn = document.getElementById('restartBtn');
 const scoreVal = document.getElementById('scoreVal');
 const lvlVal = document.getElementById('lvlVal');
 
-// --- GAME STATE ---
+const assets = { player: new Image(), platform: new Image(), coin: new Image(), enemy: new Image() };
+assets.player.src = 'player.png';
+assets.platform.src = 'platform.png';
+assets.coin.src = 'coin.png';
+assets.enemy.src = 'enemy.png';
+
 let score = 0;
 let gameOver = false;
 let currentLevel = 0;
@@ -40,194 +45,187 @@ let particles = [];
 let shakeRemaining = 0;
 
 const player = {
-  x:50, y:300, width:40, height:50,
-  dx:0, dy:0, speed:6, jumpPower:11,
-  onGround:false, jumpsLeft:2
+  x:50, y:50, width:40, height:50, // Spawn high up to avoid floor-stuck bug
+  dx:0, dy:0, speed:6, jumpPower:12, 
+  onGround:false, jumpsLeft: 2,
+  dashCooldown: 0, isDashing: 0
 };
 
-// --- ASSETS ---
-const assets = {
-  player: new Image(), platform: new Image(),
-  coin: new Image(), enemy: new Image()
-};
-assets.player.src = 'player.png';
-assets.platform.src = 'platform.png';
-assets.coin.src = 'coin.png';
-assets.enemy.src = 'enemy.png';
-
-// --- LEVEL DATA ---
 const levels = [
   {
     platforms: [
-      {x:0, y:350, w:800, h:50, type:'static'},
-      {x:300, y:250, w:150, h:20, type:'moving', range:150, speed:2, vertical:false, startX:300, startY:250},
-      {x:550, y:180, w:120, h:20, type:'static'}
+        {x:0, y:350, w:800, h:50, type:'static'},
+        {x:300, y:240, w:150, h:25, type:'moving', range:120, speed:2, startX:300},
+        {x:600, y:180, w:150, h:25, type:'static'}
     ],
-    collectibles: [{x:350,y:210,w:25,h:25,active:true}],
-    enemies: [{x:400,y:320,w:30,h:30,dx:2,L:100,R:700}],
+    collectibles: [{x:350, y:180, w:30, h:30, active:true}],
+    enemies: [{x:450, y:315, w:35, h:35, dx:2, L:400, R:750}],
     endX: 750
   }
 ];
 
 let state = { platforms: [], collectibles: [], enemies: [] };
 
-// --- LEVEL LOADER ---
 function loadLevel(idx) {
   const level = levels[idx] || levels[0];
   state.platforms = JSON.parse(JSON.stringify(level.platforms));
   state.collectibles = JSON.parse(JSON.stringify(level.collectibles));
   state.enemies = JSON.parse(JSON.stringify(level.enemies));
-  player.x = 50; player.y = 300; player.dx = 0; player.dy = 0;
+  
+  // RESET PLAYER SAFELY
+  player.x = 50; 
+  player.y = 100; // Start in the air
+  player.dx = 0; 
+  player.dy = 0;
   player.jumpsLeft = 2;
+  player.dashCooldown = 0;
+  
   gameOver = false;
   restartBtn.style.display = 'none';
   lvlVal.innerText = idx + 1;
 }
 
-// --- INPUTS ---
 const keys = {};
 window.addEventListener('keydown', e => {
-  if (e.code === 'ArrowUp'||e.code==='KeyW'||e.code==='Space') {
-    if (player.jumpsLeft>0){
-      player.dy=-player.jumpPower;
-      player.jumpsLeft--;
-      player.onGround=false;
+  if (!gameOver) {
+    // Jump
+    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
+      if (player.jumpsLeft > 0) {
+        player.dy = -player.jumpPower;
+        player.jumpsLeft--;
+        player.onGround = false;
+        createParticles(player.x + player.width/2, player.y + player.height, 'white');
+      }
+    }
+    // Dash (Shift Key)
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        if (player.dashCooldown <= 0) {
+            player.isDashing = 15; // Dash lasts 15 frames
+            player.dashCooldown = 60; // 1 second cooldown
+            shakeRemaining = 5;
+        }
     }
   }
-  keys[e.code]=true;
+  keys[e.code] = true;
 });
-window.addEventListener('keyup', e=> keys[e.code]=false);
+window.addEventListener('keyup', e => keys[e.code] = false);
 
-// --- PARTICLES ---
-function createParticles(x,y,color){
-  for(let i=0;i<10;i++){
-    particles.push({x,y,dx:(Math.random()-0.5)*8,dy:(Math.random()-0.5)*8,life:25,color,size:Math.random()*5});
+function createParticles(x, y, color) {
+  for(let i=0; i<8; i++) {
+    particles.push({
+      x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, 
+      life: 15, color: color, size: Math.random()*5
+    });
   }
 }
 
-// --- UPDATE LOOP ---
-function update(){
+function update() {
   if(gameOver) return;
 
-  // Horizontal Movement
-  player.dx = (keys['ArrowRight']||keys['KeyD'])?player.speed:(keys['ArrowLeft']||keys['KeyA'])?-player.speed:player.dx*0.8;
+  // Dash Logic
+  if (player.isDashing > 0) {
+    player.dx = (player.dx >= 0 ? 15 : -15); // Blast forward
+    player.dy = 0; // Freeze gravity during dash
+    player.isDashing--;
+    createParticles(player.x, player.y + 25, 'cyan');
+  } else {
+    // Regular Movement
+    if(keys['ArrowRight'] || keys['KeyD']) player.dx = 6;
+    else if(keys['ArrowLeft'] || keys['KeyA']) player.dx = -6;
+    else player.dx *= 0.8;
+    player.dy += 0.6; // Gravity
+  }
 
-  player.dy += 0.6; // gravity
+  if (player.dashCooldown > 0) player.dashCooldown--;
+
   player.x += player.dx;
   player.y += player.dy;
 
-  // Platforms
-  player.onGround=false;
-  state.platforms.forEach(p=>{
-    if(p.type==='moving'){
-      if(p.vertical){
-        p.startY += p.speed;
-        if(p.startY>p.range+p.y || p.startY<p.y-p.range)p.speed*=-1;
-        p.y=p.startY;
-      } else {
+  // Platform Collision
+  player.onGround = false;
+  state.platforms.forEach(p => {
+    if(p.type === 'moving') {
         p.startX += p.speed;
-        if(p.startX>p.range+p.x || p.startX<p.x-p.range)p.speed*=-1;
-        p.x=p.startX;
-      }
+        if(p.startX > p.range + p.x || p.startX < p.x - p.range) p.speed *= -1;
+        p.x = p.startX; 
     }
 
-    // Collision
-    if(player.x< p.x+p.w && player.x+player.width>p.x && player.y+player.height>p.y && player.y+player.height<p.y+player.h+player.dy){
-      player.y=p.y-player.height;
-      player.dy=0;
-      player.onGround=true;
-      player.jumpsLeft=2;
-      if(p.type==='moving' && !p.vertical) player.x+=p.speed;
+    // AABB Collision check
+    if(player.x < p.x + p.w && player.x + player.width > p.x &&
+       player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
+      player.y = p.y - player.height;
+      player.dy = 0;
+      player.onGround = true;
+      player.jumpsLeft = 2;
+      if(p.type === 'moving') player.x += p.speed;
     }
   });
 
-  // Enemies
-  state.enemies.forEach((e,i)=>{
-    e.x+=e.dx;
-    if(e.x<e.L || e.x+e.w>e.R) e.dx*=-1;
+  // Enemy Collision (With Spawn Protection)
+  state.enemies.forEach((e, i) => {
+    e.x += e.dx;
+    if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
 
-    if(player.x<e.x+e.w && player.x+player.width>e.x && player.y<e.y+e.h && player.y+player.height>e.y){
-      if(player.dy>0 && player.y+player.height<e.y+e.h/2){
-        state.enemies.splice(i,1);
-        player.dy=-10;
-        player.jumpsLeft=1;
-        score+=50; scoreVal.innerText=score;
-        shakeRemaining=10;
-        createParticles(e.x,e.y,'#ff4757');
+    // Only kill player if they aren't in the "Safe Zone" (first 1 second of level)
+    if(player.x < e.x + e.w && player.x + player.width > e.x && player.y < e.y + e.h && player.y + player.height > e.y) {
+      if(player.dy > 0 && player.y + player.height < e.y + e.h/2) {
+        state.enemies.splice(i, 1);
+        player.dy = -10;
+        player.jumpsLeft = 1;
+        score += 250;
+        scoreVal.innerText = score;
+        shakeRemaining = 10;
       } else {
-        gameOver=true;
-        shakeRemaining=20;
-        restartBtn.style.display='block';
+        gameOver = true;
+        shakeRemaining = 20;
+        restartBtn.style.display = 'block';
       }
     }
   });
 
-  // Collectibles
-  state.collectibles.forEach(c=>{
-    if(c.active && player.x<c.x+c.w && player.x+player.width>c.x && player.y< c.y+c.h && player.y+player.height>c.y){
-      c.active=false;
-      score+=10; scoreVal.innerText=score;
-      createParticles(c.x,c.y,'#f1c40f');
-    }
-  });
-
-  // Screen shake decrement
-  if(shakeRemaining>0) shakeRemaining--;
-
-  // Particles
-  particles.forEach((p,i)=>{
-    p.x+=p.dx; p.y+=p.dy; p.life--;
-    if(p.life<=0) particles.splice(i,1);
-  });
-
-  // Screen bounds
-  if(player.x<0) player.x=0;
-  if(player.y>canvas.height){ gameOver=true; restartBtn.style.display='block'; }
+  // Level Win / Out of Bounds
+  if(player.x >= 780) {
+    currentLevel++;
+    loadLevel(currentLevel);
+  }
+  if(player.x < 0) player.x = 0;
+  if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
+  
+  if(shakeRemaining > 0) shakeRemaining--;
+  particles.forEach((p, i) => { p.x += p.dx; p.y += p.dy; p.life--; if(p.life <= 0) particles.splice(i, 1); });
 }
 
-// --- DRAW LOOP ---
-function draw(){
+function draw() {
   ctx.save();
-  if(shakeRemaining>0){ let sX=(Math.random()-0.5)*7,sY=(Math.random()-0.5)*7; ctx.translate(sX,sY); }
+  if (shakeRemaining > 0) ctx.translate((Math.random()-0.5)*7, (Math.random()-0.5)*7);
+  
+  ctx.fillStyle = '#87ceeb';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  // Platforms
-  state.platforms.forEach(p=> ctx.drawImage(assets.platform,p.x,p.y,p.w,p.h));
-
-  // Collectibles
-  state.collectibles.forEach(c=>{ if(c.active) ctx.drawImage(assets.coin,c.x,c.y,c.w,c.h); });
-
-  // Player
-  ctx.drawImage(assets.player,player.x,player.y,player.width,player.height);
-
-  // Enemies
-  state.enemies.forEach(e=> ctx.drawImage(assets.enemy,e.x,e.y,e.w,e.h));
-
-  // Particles
-  particles.forEach(p=>{
-    ctx.fillStyle=p.color;
-    ctx.fillRect(p.x,p.y,p.size,p.size);
-  });
+  state.platforms.forEach(p => ctx.drawImage(assets.platform, p.x, p.y, p.w, p.h));
+  state.collectibles.forEach(c => { if(c.active) ctx.drawImage(assets.coin, c.x, c.y, c.w, c.h); });
+  state.enemies.forEach(e => ctx.drawImage(assets.enemy, e.x, e.y, e.w, e.h));
+  particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); });
+  
+  // Dash Effect
+  if (player.isDashing > 0) ctx.globalAlpha = 0.5;
+  ctx.drawImage(assets.player, player.x, player.y, player.width, player.height);
+  ctx.globalAlpha = 1.0;
 
   ctx.restore();
 
-  if(gameOver){
-    ctx.fillStyle='rgba(0,0,0,0.7)';
+  if(gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle='white';
-    ctx.font='bold 48px Arial';
-    ctx.textAlign='center';
-    ctx.fillText('CRASHED!',canvas.width/2,200);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('MISSION FAILED', canvas.width/2, 200);
   }
 }
 
-// --- RESTART ---
-restartBtn.addEventListener('click',()=> loadLevel(currentLevel));
-
-// --- GAME LOOP ---
-function loop(){ update(); draw(); requestAnimationFrame(loop); }
-
+restartBtn.addEventListener('click', () => loadLevel(currentLevel));
+function loop() { update(); draw(); requestAnimationFrame(loop); }
 loadLevel(0);
 loop();
 </script>
