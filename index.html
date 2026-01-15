@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Platformer Ultra</title>
+<title>Super Platformer: Solid Edition</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
-  canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #444; }
+  body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; }
+  canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #333; }
   #ui-layer {
     position: absolute; top: 15px; left: 15px; color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     pointer-events: none; width: 100%;
@@ -20,8 +20,8 @@
 <body>
 <div id="ui-layer">
   <div style="font-size: 26px; font-weight: bold;">Score: <span id="scoreVal">0</span></div>
-  <div style="font-size: 18px; color: #ffd700;">Level: <span id="lvlVal">1</span></div>
-  <div id="statusMsg" style="font-size: 14px; color: #00ff00;"></div>
+  <div style="font-size: 18px;">Level: <span id="lvlVal">1</span></div>
+  <div id="powerStatus" style="font-size: 14px; color: #00ff00;"></div>
 </div>
 <canvas id="gameCanvas" width="800" height="400"></canvas>
 <button id="restartBtn">RETRY FROM CHECKPOINT</button>
@@ -32,12 +32,13 @@ const ctx = canvas.getContext('2d');
 const restartBtn = document.getElementById('restartBtn');
 const scoreVal = document.getElementById('scoreVal');
 const lvlVal = document.getElementById('lvlVal');
-const statusMsg = document.getElementById('statusMsg');
+const powerStatus = document.getElementById('powerStatus');
 
+// --- ASSETS ---
 const assets = { 
     player: new Image(), platform: new Image(), coin: new Image(), 
     enemy: new Image(), bg: new Image(), checkpoint: new Image(),
-    powerup: new Image(), fallPlat: new Image()
+    powerup: new Image()
 };
 assets.player.src = 'player.png';
 assets.platform.src = 'platform.png';
@@ -46,57 +47,53 @@ assets.enemy.src = 'enemy.png';
 assets.bg.src = 'background.png';
 assets.checkpoint.src = 'checkpoint.png';
 assets.powerup.src = 'powerup.png';
-assets.fallPlat.src = 'falling_platform.png';
 
 let score = 0;
 let gameOver = false;
 let currentLevel = 0;
-let particles = [];
-let shakeRemaining = 0;
 let ghosts = [];
 
 const player = {
-  x:50, y:100, width:40, height:50,
+  x:50, y:200, w:40, h:50,
   dx:0, dy:0, speed:6, jumpPower:12, 
   onGround:false, jumpsLeft: 2,
   dashCooldown: 0, isDashing: 0, facing: 1,
   invincible: 0, 
-  checkpoint: { x: 50, y: 100 } // Default start
+  checkpoint: { x: 50, y: 200 }
 };
 
 const levels = [
   {
     platforms: [
-        {x:0, y:350, w:400, h:50, type:'static'},
-        {x:450, y:350, w:350, h:50, type:'static'}, // A gap with lava
-        {x:200, y:250, w:100, h:20, type:'falling', timer: 0, state: 'idle'},
-        {x:450, y:180, w:120, h:20, type:'moving', range:100, speed:2, basePos: 450}
+        {x:0, y:350, w:300, h:50, type:'static'},
+        {x:450, y:350, w:350, h:50, type:'static'},
+        {x:320, y:240, w:100, h:25, type:'static'}, // Solid replacement for the falling one
+        {x:500, y:180, w:120, h:25, type:'moving', range:100, basePos: 500}
     ],
-    collectibles: [{x:250, y:210, w:30, h:30, active:true, type:'coin'}],
-    powerups: [{x:480, y:130, w:30, h:30, active:true}],
-    checkpoints: [{x:410, y:300, w:40, h:50, active:true}],
+    items: [
+        {x:250, y:310, w:30, h:30, type:'coin', active:true},
+        {x:540, y:130, w:30, h:30, type:'powerup', active:true},
+        {x:460, y:300, w:40, h:50, type:'checkpoint', active:true}
+    ],
     enemies: [{x:600, y:315, w:35, h:35, dx:2, L:450, R:750}],
     endX: 780
   }
 ];
 
-let state = { platforms: [], collectibles: [], enemies: [], checkpoints: [], powerups: [] };
+let state = { platforms: [], items: [], enemies: [] };
 
 function loadLevel(idx, fromCheckpoint = false) {
-  if (idx >= levels.length) { alert("ULTRA CHAMPION!"); location.reload(); return; }
-  const level = levels[idx];
+  const level = levels[idx] || levels[0];
   state.platforms = JSON.parse(JSON.stringify(level.platforms));
-  state.collectibles = JSON.parse(JSON.stringify(level.collectibles));
+  state.items = JSON.parse(JSON.stringify(level.items));
   state.enemies = JSON.parse(JSON.stringify(level.enemies));
-  state.checkpoints = JSON.parse(JSON.stringify(level.checkpoints));
-  state.powerups = JSON.parse(JSON.stringify(level.powerups));
   
   if(fromCheckpoint) {
       player.x = player.checkpoint.x;
       player.y = player.checkpoint.y;
   } else {
-      player.x = 50; player.y = 100;
-      player.checkpoint = { x: 50, y: 100 };
+      player.x = 50; player.y = 200;
+      player.checkpoint = { x: 50, y: 200 };
   }
   
   player.dx = 0; player.dy = 0;
@@ -106,14 +103,13 @@ function loadLevel(idx, fromCheckpoint = false) {
   lvlVal.innerText = idx + 1;
 }
 
-// Input
 const keys = {};
 window.addEventListener('keydown', e => {
     if (!gameOver && (e.code === 'Space' || e.code === 'ArrowUp') && player.jumpsLeft > 0) {
         player.dy = -player.jumpPower; player.jumpsLeft--; player.onGround = false;
     }
     if (!gameOver && (e.code === 'ShiftLeft') && player.dashCooldown <= 0) {
-        player.isDashing = 12; player.dashCooldown = 45;
+        player.isDashing = 10; player.dashCooldown = 40;
     }
     keys[e.code] = true;
 });
@@ -122,108 +118,84 @@ window.addEventListener('keyup', e => keys[e.code] = false);
 function update() {
   if(gameOver) return;
 
-  // Movement
-  if(keys['ArrowRight']) { player.dx = 6; player.facing = 1; }
-  else if(keys['ArrowLeft']) { player.dx = -6; player.facing = -1; }
+  if(keys['ArrowRight']) { player.dx = player.speed; player.facing = 1; }
+  else if(keys['ArrowLeft']) { player.dx = -player.speed; player.facing = -1; }
   else player.dx *= 0.8;
 
   if (player.isDashing > 0) {
-    player.dx = player.facing * 16; player.dy = 0; player.isDashing--;
-    ghosts.push({x: player.x, y: player.y, life: 15});
-  } else { player.dy += 0.6; }
+    player.dx = player.facing * 15; player.dy = 0; player.isDashing--;
+    ghosts.push({x: player.x, y: player.y, life: 10});
+  } else { player.dy += 0.7; }
   
   player.x += player.dx; player.y += player.dy;
   if(player.dashCooldown > 0) player.dashCooldown--;
-  if(player.invincible > 0) player.invincible--;
+  if(player.invincible > 0) {
+      player.invincible--;
+      powerStatus.innerText = "POWERED UP: " + Math.ceil(player.invincible/60) + "s";
+  } else { powerStatus.innerText = ""; }
 
-  // Platforms
   player.onGround = false;
   state.platforms.forEach(p => {
     if(p.type === 'moving') {
-        p.x = p.basePos + Math.sin(Date.now() / 500) * p.range;
-    }
-    if(p.type === 'falling' && p.state === 'falling') {
-        p.timer++;
-        if(p.timer > 30) p.y += 10; // Drop after 0.5s
+        let oldX = p.x;
+        p.x = p.basePos + Math.sin(Date.now() / 600) * p.range;
+        if(player.onGround && player.y + player.h === p.y) player.x += (p.x - oldX);
     }
 
-    if(player.x < p.x + p.w && player.x + player.width > p.x &&
-       player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
-        if(p.type === 'falling' && p.state === 'idle') p.state = 'falling';
-        if(!(p.type === 'falling' && p.timer > 35)) {
-            player.y = p.y - player.height; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
-            if(p.type === 'moving') player.x += (p.x - (p.basePos + Math.sin((Date.now()-16)/500)*p.range));
-        }
+    if(player.x < p.x + p.w && player.x + player.w > p.x &&
+       player.y + player.h > p.y && player.y + player.h < p.y + p.h + player.dy) {
+        player.y = p.y - player.h; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
     }
   });
 
-  // Powerups & Checkpoints
-  state.powerups.forEach(p => {
-    if(p.active && player.x < p.x + p.w && player.x + player.width > p.x && player.y < p.y + p.h && player.y + player.height > p.y) {
-        p.active = false; player.invincible = 300; // 5 seconds
-    }
-  });
-  state.checkpoints.forEach(c => {
-    if(c.active && player.x < c.x + c.w && player.x + player.width > c.x) {
-        c.active = false; player.checkpoint = { x: c.x, y: c.y - 50 };
-        statusMsg.innerText = "CHECKPOINT REACHED!";
-        setTimeout(() => statusMsg.innerText = "", 2000);
+  state.items.forEach(item => {
+    if(item.active && player.x < item.x + item.w && player.x + player.w > item.x && player.y < item.y + item.h && player.y + player.h > item.y) {
+        if(item.type === 'coin') { item.active = false; score += 100; scoreVal.innerText = score; }
+        if(item.type === 'powerup') { item.active = false; player.invincible = 300; }
+        if(item.type === 'checkpoint') { item.active = false; player.checkpoint = {x: item.x, y: item.y - 10}; }
     }
   });
 
-  // Coins
-  state.collectibles.forEach(c => {
-    if(c.active && player.x < c.x + c.w && player.x + player.width > c.x && player.y < c.y + c.h && player.y + player.height > c.y) {
-        c.active = false; score += 100; scoreVal.innerText = score;
-    }
-  });
-
-  // Enemies
   state.enemies.forEach((e, i) => {
     e.x += e.dx; if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
-    if(player.x < e.x + e.w && player.x + player.width > e.x && player.y < e.y + e.h && player.y + player.height > e.y) {
+    if(player.x < e.x + e.w && player.x + player.w > e.x && player.y < e.y + e.h && player.y + player.h > e.y) {
       if(player.dy > 0 || player.invincible > 0) {
-        state.enemies.splice(i, 1); player.dy = -10; score += 200;
+        state.enemies.splice(i, 1); player.dy = -10; score += 200; scoreVal.innerText = score;
       } else { gameOver = true; restartBtn.style.display = 'block'; }
     }
   });
 
-  if(player.x >= 780) { currentLevel++; loadLevel(currentLevel); }
-  if(player.y > canvas.height - 20) { gameOver = true; restartBtn.style.display = 'block'; }
+  if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
+  if(player.x > levels[currentLevel].endX) { currentLevel++; loadLevel(currentLevel); }
   ghosts.forEach((g, i) => { g.life--; if(g.life <= 0) ghosts.splice(i, 1); });
 }
 
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  
-  // 1. Parallax Background (Moves at 20% player speed)
-  let bgX = -(player.x * 0.2) % canvas.width;
-  ctx.drawImage(assets.bg, bgX, 0, canvas.width, canvas.height);
-  ctx.drawImage(assets.bg, bgX + canvas.width, 0, canvas.width, canvas.height);
 
-  // 2. Lava
+  let bgScroll = (player.x * 0.1) % canvas.width;
+  ctx.drawImage(assets.bg, -bgScroll, 0, canvas.width, canvas.height);
+  ctx.drawImage(assets.bg, -bgScroll + canvas.width, 0, canvas.width, canvas.height);
+
   ctx.fillStyle = '#ff4500'; ctx.fillRect(0, canvas.height-20, canvas.width, 20);
 
-  // 3. World Objects
-  state.platforms.forEach(p => {
-      let img = p.type === 'falling' ? assets.fallPlat : assets.platform;
-      ctx.drawImage(img, p.x, p.y, p.w, p.h);
+  state.platforms.forEach(p => ctx.drawImage(assets.platform, p.x, p.y, p.w, p.h));
+  state.items.forEach(item => {
+    if(!item.active && item.type !== 'checkpoint') return;
+    ctx.drawImage(assets[item.type], item.x, item.y, item.w, item.h);
   });
-  state.checkpoints.forEach(c => ctx.drawImage(assets.checkpoint, c.x, c.y, c.w, c.h));
-  state.powerups.forEach(p => { if(p.active) ctx.drawImage(assets.powerup, p.x, p.y, p.w, p.h); });
-  state.collectibles.forEach(c => { if(c.active) ctx.drawImage(assets.coin, c.x, c.y, c.w, c.h); });
   state.enemies.forEach(e => ctx.drawImage(assets.enemy, e.x, e.y, e.w, e.h));
 
-  // 4. Player
-  ghosts.forEach(g => { ctx.globalAlpha = 0.3; ctx.drawImage(assets.player, g.x, g.y, player.width, player.height); });
+  ghosts.forEach(g => { ctx.globalAlpha = 0.3; ctx.drawImage(assets.player, g.x, g.y, player.w, player.h); });
   ctx.globalAlpha = 1.0;
-  if(player.invincible > 0) ctx.filter = `hue-rotate(${Date.now()%360}deg) brightness(1.5)`;
-  ctx.drawImage(assets.player, player.x, player.y, player.width, player.height);
+  if(player.invincible > 0) ctx.filter = `hue-rotate(${Date.now()%360}deg) contrast(1.5)`;
+  ctx.drawImage(assets.player, player.x, player.y, player.w, player.h);
   ctx.filter = 'none';
 
   if(gameOver) {
       ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText('FAILED', 400, 200);
+      ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.font = "bold 32px Arial";
+      ctx.fillText('RETRY FROM LAST CHECKPOINT?', 400, 200);
   }
 }
 
