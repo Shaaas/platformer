@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Super Sprites: Coins & Ghost Dash</title>
+<title>Super Sprites: World Tour</title>
 <style>
   body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Segoe UI', sans-serif; }
   canvas { display: block; margin: 0 auto; background: #87ceeb; border: 4px solid #444; }
@@ -20,10 +20,11 @@
 <body>
 <div id="ui-layer">
   <div style="font-size: 26px; font-weight: bold;">Score: <span id="scoreVal">0</span></div>
-  <div style="font-size: 14px; opacity: 0.9;">Level: <span id="lvlVal">1</span> | SHIFT to Dash</div>
+  <div style="font-size: 18px; color: #ffd700;">Level: <span id="lvlVal">1</span></div>
+  <div style="font-size: 12px; opacity: 0.8;">[Arrows] Move | [Space] Jump | [Shift] Dash</div>
 </div>
 <canvas id="gameCanvas" width="800" height="400"></canvas>
-<button id="restartBtn">RETRY MISSION</button>
+<button id="restartBtn">RETRY LEVEL</button>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
@@ -43,27 +44,51 @@ let gameOver = false;
 let currentLevel = 0;
 let particles = [];
 let shakeRemaining = 0;
-let ghosts = []; // For the dash effect
+let ghosts = [];
 
 const player = {
   x:50, y:100, width:40, height:50,
   dx:0, dy:0, speed:6, jumpPower:12, 
   onGround:false, jumpsLeft: 2,
-  dashCooldown: 0, isDashing: 0, facing: 1 // 1 for right, -1 for left
+  dashCooldown: 0, isDashing: 0, facing: 1
 };
 
+// --- DATA FOR MULTIPLE LEVELS ---
 const levels = [
-  {
+  { // Level 1: Introduction
     platforms: [
         {x:0, y:350, w:800, h:50, type:'static'},
-        {x:300, y:240, w:150, h:25, type:'moving', range:120, speed:2, startX:300},
-        {x:600, y:180, w:150, h:25, type:'static'}
+        {x:200, y:250, w:150, h:20, type:'static'},
+        {x:450, y:180, w:150, h:20, type:'static'}
     ],
-    collectibles: [
-        {x:350, y:180, w:30, h:30, active:true},
-        {x:650, y:120, w:30, h:30, active:true}
+    collectibles: [{x:250, y:210, w:30, h:30, active:true}, {x:500, y:140, w:30, h:30, active:true}],
+    enemies: [{x:400, y:315, w:35, h:35, dx:2, L:350, R:700}],
+    endX: 750
+  },
+  { // Level 2: Moving Platform Challenge
+    platforms: [
+        {x:0, y:350, w:200, h:50, type:'static'},
+        {x:250, y:300, w:100, h:20, type:'moving', range:150, speed:3, startX:250},
+        {x:500, y:200, w:100, h:20, type:'moving', range:100, speed:-2, startX:500},
+        {x:700, y:350, w:100, h:50, type:'static'}
     ],
-    enemies: [{x:450, y:315, w:35, h:35, dx:2, L:400, R:750}],
+    collectibles: [{x:300, y:150, w:30, h:30, active:true}, {x:550, y:100, w:30, h:30, active:true}],
+    enemies: [{x:100, y:315, w:35, h:35, dx:1, L:20, R:180}],
+    endX: 750
+  },
+  { // Level 3: The Gauntlet
+    platforms: [
+        {x:0, y:350, w:150, h:50, type:'static'},
+        {x:200, y:280, w:80, h:20, type:'static'},
+        {x:350, y:210, w:80, h:20, type:'static'},
+        {x:500, y:140, w:80, h:20, type:'static'},
+        {x:650, y:210, w:150, h:20, type:'static'}
+    ],
+    collectibles: [{x:220, y:240, w:30, h:30, active:true}, {x:520, y:100, w:30, h:30, active:true}],
+    enemies: [
+        {x:200, y:245, w:35, h:35, dx:2, L:200, R:300},
+        {x:650, y:175, w:35, h:35, dx:3, L:650, R:780}
+    ],
     endX: 750
   }
 ];
@@ -71,7 +96,14 @@ const levels = [
 let state = { platforms: [], collectibles: [], enemies: [] };
 
 function loadLevel(idx) {
-  const level = levels[idx] || levels[0];
+  if (idx >= levels.length) {
+    alert("YOU ARE THE PLATFORMING CHAMPION!");
+    currentLevel = 0;
+    score = 0;
+    idx = 0;
+  }
+  
+  const level = levels[idx];
   state.platforms = JSON.parse(JSON.stringify(level.platforms));
   state.collectibles = JSON.parse(JSON.stringify(level.collectibles));
   state.enemies = JSON.parse(JSON.stringify(level.enemies));
@@ -85,25 +117,23 @@ function loadLevel(idx) {
   gameOver = false;
   restartBtn.style.display = 'none';
   lvlVal.innerText = idx + 1;
+  scoreVal.innerText = score;
 }
 
+// Input Handling
 const keys = {};
 window.addEventListener('keydown', e => {
   if (!gameOver) {
-    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
-      if (player.jumpsLeft > 0) {
+    if ((e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') && player.jumpsLeft > 0) {
         player.dy = -player.jumpPower;
         player.jumpsLeft--;
         player.onGround = false;
         createParticles(player.x + player.width/2, player.y + player.height, 'white');
-      }
     }
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        if (player.dashCooldown <= 0) {
-            player.isDashing = 12; 
-            player.dashCooldown = 45; 
-            shakeRemaining = 5;
-        }
+    if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && player.dashCooldown <= 0) {
+        player.isDashing = 12; 
+        player.dashCooldown = 45; 
+        shakeRemaining = 5;
     }
   }
   keys[e.code] = true;
@@ -122,43 +152,22 @@ function createParticles(x, y, color) {
 function update() {
   if(gameOver) return;
 
-  // Horizontal Movement & Direction
   if(keys['ArrowRight'] || keys['KeyD']) { player.dx = 6; player.facing = 1; }
   else if(keys['ArrowLeft'] || keys['KeyA']) { player.dx = -6; player.facing = -1; }
   else player.dx *= 0.8;
 
-  // Dash Logic
   if (player.isDashing > 0) {
-    player.dx = player.facing * 16; 
-    player.dy = 0;
-    player.isDashing--;
-    // Add a ghost image every 2 frames
-    if(player.isDashing % 2 === 0) {
-        ghosts.push({x: player.x, y: player.y, life: 20});
-    }
+    player.dx = player.facing * 16; player.dy = 0; player.isDashing--;
+    if(player.isDashing % 2 === 0) ghosts.push({x: player.x, y: player.y, life: 20});
   } else {
     player.dy += 0.6; 
   }
-
   if (player.dashCooldown > 0) player.dashCooldown--;
 
   player.x += player.dx;
   player.y += player.dy;
 
-  // Coin Collection (FIXED)
-  state.collectibles.forEach(c => {
-    if(c.active && 
-       player.x < c.x + c.w && player.x + player.width > c.x && 
-       player.y < c.y + c.h && player.y + player.height > c.y) {
-      
-      c.active = false; // Disable coin
-      score += 100; // ADD SCORE
-      scoreVal.innerText = score; // UPDATE UI
-      createParticles(c.x + c.w/2, c.y + c.h/2, 'gold');
-    }
-  });
-
-  // Platform Collision
+  // Collision Logic
   player.onGround = false;
   state.platforms.forEach(p => {
     if(p.type === 'moving') {
@@ -168,40 +177,40 @@ function update() {
     }
     if(player.x < p.x + p.w && player.x + player.width > p.x &&
        player.y + player.height > p.y && player.y + player.height < p.y + p.h + player.dy) {
-      player.y = p.y - player.height;
-      player.dy = 0;
-      player.onGround = true;
-      player.jumpsLeft = 2;
+      player.y = p.y - player.height; player.dy = 0; player.onGround = true; player.jumpsLeft = 2;
       if(p.type === 'moving') player.x += p.speed;
     }
   });
 
-  // Enemy Collision
+  state.collectibles.forEach(c => {
+    if(c.active && player.x < c.x + c.w && player.x + player.width > c.x && player.y < c.y + c.h && player.y + player.height > c.y) {
+      c.active = false; score += 100; scoreVal.innerText = score;
+      createParticles(c.x + c.w/2, c.y + c.h/2, 'gold');
+    }
+  });
+
   state.enemies.forEach((e, i) => {
     e.x += e.dx;
     if(e.x < e.L || e.x + e.w > e.R) e.dx *= -1;
     if(player.x < e.x + e.w && player.x + player.width > e.x && player.y < e.y + e.h && player.y + player.height > e.y) {
       if(player.dy > 0 && player.y + player.height < e.y + e.h/2) {
-        state.enemies.splice(i, 1);
-        player.dy = -10;
-        player.jumpsLeft = 1;
-        score += 250;
-        scoreVal.innerText = score;
-        shakeRemaining = 10;
+        state.enemies.splice(i, 1); player.dy = -10; player.jumpsLeft = 1; score += 250;
+        scoreVal.innerText = score; shakeRemaining = 10;
       } else {
-        gameOver = true;
-        shakeRemaining = 20;
-        restartBtn.style.display = 'block';
+        gameOver = true; shakeRemaining = 20; restartBtn.style.display = 'block';
       }
     }
   });
 
-  // Screen Bounds & Win
-  if(player.x >= 780) { currentLevel++; loadLevel(currentLevel); }
+  // Level Completion Logic
+  if(player.x >= levels[currentLevel].endX) {
+    currentLevel++;
+    loadLevel(currentLevel);
+  }
+
   if(player.x < 0) player.x = 0;
   if(player.y > canvas.height) { gameOver = true; restartBtn.style.display = 'block'; }
   
-  // Decal Timers
   if(shakeRemaining > 0) shakeRemaining--;
   particles.forEach((p, i) => { p.x += p.dx; p.y += p.dy; p.life--; if(p.life <= 0) particles.splice(i, 1); });
   ghosts.forEach((g, i) => { g.life--; if(g.life <= 0) ghosts.splice(i, 1); });
@@ -210,22 +219,16 @@ function update() {
 function draw() {
   ctx.save();
   if (shakeRemaining > 0) ctx.translate((Math.random()-0.5)*7, (Math.random()-0.5)*7);
-  
   ctx.fillStyle = '#87ceeb';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Draw Dash Ghosts
-  ghosts.forEach(g => {
-    ctx.globalAlpha = g.life / 40; // Fade out
-    ctx.drawImage(assets.player, g.x, g.y, player.width, player.height);
-  });
+  ghosts.forEach(g => { ctx.globalAlpha = g.life / 40; ctx.drawImage(assets.player, g.x, g.y, player.width, player.height); });
   ctx.globalAlpha = 1.0;
 
   state.platforms.forEach(p => ctx.drawImage(assets.platform, p.x, p.y, p.w, p.h));
   state.collectibles.forEach(c => { if(c.active) ctx.drawImage(assets.coin, c.x, c.y, c.w, c.h); });
   state.enemies.forEach(e => ctx.drawImage(assets.enemy, e.x, e.y, e.w, e.h));
   particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); });
-  
   ctx.drawImage(assets.player, player.x, player.y, player.width, player.height);
 
   ctx.restore();
@@ -234,13 +237,12 @@ function draw() {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = 'white';
-    ctx.font = 'bold 48px Arial';
-    ctx.textAlign = 'center';
+    ctx.font = 'bold 48px Arial'; ctx.textAlign = 'center';
     ctx.fillText('MISSION FAILED', canvas.width/2, 200);
   }
 }
 
-restartBtn.addEventListener('click', () => { score = 0; scoreVal.innerText = 0; loadLevel(currentLevel); });
+restartBtn.addEventListener('click', () => loadLevel(currentLevel));
 function loop() { update(); draw(); requestAnimationFrame(loop); }
 loadLevel(0);
 loop();
